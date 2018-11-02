@@ -1,18 +1,14 @@
--------------------------------------------------------------------------------
+-----------------------------------------------------------------------------------------
 -- 
 -- Corona Labs
 --
--- timelineobject.lua
+-- timeline.lua
 --
 -- Code is MIT licensed; see https://www.coronalabs.com/links/code/license
 --
--------------------------------------------------------------------------------
--- To do:
--- 		- error checking parameters	
 --=====================================================================================--
 
-
-local tweenObjectLibrary = require( "__animation.tweenobject" )
+local tweenObjectLibrary = require( "plugin.animation.tween" )
 
 --=====================================================================================--
 -- Library objects ====================================================================--
@@ -28,7 +24,7 @@ local private = {}
 local DEBUG_STRING = "Animation Timeline: "
 local WARNING_STRING = "WARNING: " .. DEBUG_STRING
 local ERROR_STRING = "ERROR: " .. DEBUG_STRING
-
+ 
 --=====================================================================================--
 -- Library variables ==================================================================--
 --=====================================================================================--
@@ -57,7 +53,7 @@ private.parametersData = {
 		onPositionChange = "function",
 		onMarkerPass = "function",
 
-		-- Simply must exist, can be any format
+		-- Simply can exist, can be any format
 		id = true,
 		tag = true,
 
@@ -82,13 +78,35 @@ local mMin, mMax = math.min, math.max
 -----------------------------------------------------------------------------------------
 -- private.sortMarkersByTime( markerA, markerB )
 -- Used when creating a new marker to insert it into a table in the right order
--- Are there any benefits to having it here or can I just place it into the table.sort()
--- function directly?
 -----------------------------------------------------------------------------------------
 function private.sortMarkersByTime( markerA, markerB )
 
 	-- Return which marker is earlier than the other
 	return markerA.time < markerB.time
+
+end
+
+-----------------------------------------------------------------------------------------
+-- private.sortTweensByStartTime( tweenA, tweenB )
+-- Used when creating the tweens in a timeline
+-- By storing them in this order, it means tweens sharing targets and properties will be
+-- handled correctly
+-----------------------------------------------------------------------------------------
+function private.sortTweensByStartTime( tweenA, tweenB )
+
+	-- Return which tween is earlier than the other
+	return tweenA._startTime < tweenB._startTime
+
+end
+
+-----------------------------------------------------------------------------------------
+-- private.sortTablesByOffset( tableA, tableB )
+-- Used when organising the tweens after a setPosition
+-----------------------------------------------------------------------------------------
+function private.sortTablesByOffset( tableA, tableB )
+
+	-- Return which table has a smaller offset than the other
+	return tableA.offset < tableB.offset
 
 end
 
@@ -106,10 +124,10 @@ function private.validateParameters( params )
 
 	-- Do tweens
 	local tweens = params.tweens
-	if tweens and type( tweens ) == "table" then
+	if tweens and "table" == type( tweens ) then
 		for i = 1, #tweens do
 			local tween = tweens[ i ]
-			if type( tween ) ~= "table" then print( WARNING_STRING .. " tween parameter must be a table: " .. tostring( tween ) )
+			if "table" ~= type( tween ) then print( WARNING_STRING .. " tween parameter must be a table: " .. tostring( tween ) )
 			else private.validateSetOfParameters( tween, private.parametersData.tweens, " in tween" ) end
 		end
 	end
@@ -136,19 +154,19 @@ function private.validateSetOfParameters( params, parametersData, appendString )
 		if parameterData then
 
 			-- What do we want from this value?
-			if type( parameterData ) == "string" then
+			if "string" == type( parameterData ) then
 
 				-- Is it the right type?
 				if type( v ) ~= parameterData then warningText = "parameter must be a " .. parameterData end
 
-			elseif type( parameterData ) == "table" then
+			elseif "table" == type( parameterData ) then
 
 				-- Is it the right type?
 				local validType = parameterData.type
 				local isValidType = false
 
 				-- Can be one of multiple types
-				if type( validType ) == "table" then
+				if "table" == type( validType ) then
 					for i = 1, #validType do
 						if type( v ) == validType[ i ] then
 							isValidType = true
@@ -163,18 +181,18 @@ function private.validateSetOfParameters( params, parametersData, appendString )
 
 				-- Invalid
 				if isValidType ~= true then
-					if type( validType ) == "table" then warningText = "parameter must be one of the following: " .. table.concat( validType, ", " )
+					if "table" == type( validType ) then warningText = "parameter must be one of the following: " .. table.concat( validType, ", " )
 					else warningText = "parameter must be a " .. validType end
 
 				-- Was valid, now do we need to check for ranges?
 				else
 
 					-- Must be greater than the limit
-					if parameterData.range == ">" then
+					if ">" == parameterData.range then
 						if parameterData.limit >= v then warningText = "parameter must be greater than " .. tonumber( parameterData.limit ) end
 
 					-- Must be greater than or equal to the limit
-					elseif parameterData.range == ">=" then
+					elseif ">=" == parameterData.range then
 						if parameterData.limit > v then warningText = "parameter must be greater than or equal to " .. tonumber( parameterData.limit ) end
 					end
 				end
@@ -243,20 +261,21 @@ end
 -- If newDuration is set, then this means we just added a time, so we only need to
 -- compare the current duration to the new time and store whichever is longer
 -- If newTime is nil, this means we need to calculate the duration the long way (likely
--- as a result of deleting something). In this case we find the end of the last child,
--- then compare that to the last marker if any exists
+-- as a result of cancelling something).
+-- In this case we find the end of the last child, then compare that to the last marker
+-- if any exists
 -----------------------------------------------------------------------------------------
 function timelineObjectLibrary:_calculateAndSetTotalDuration( newDuration )
 
 	-- If this new duration is shorter than the timeline's current duration, re-calculate the timeline's duration
-	if newDuration and self._duration and newDuration < self._duration then
+	if nil == newDuration or ( newDuration and self._duration and newDuration < self._duration ) then
 
 		-- Need to recalculate the duration the old fashioned way (longest remaining tween or latest marker)
 		newDuration = 0
 		for i = 1, #self._children do
 
 			-- Get the child duration
-			local childTotalDuration = self._children[ i ]:getTotalDuration()
+			local childTotalDuration = self._children[ i ]:_getTotalDuration()
 
 			-- The child has a valid duration (IE isn't infinite), so store which is longer
 			if childTotalDuration then
@@ -334,7 +353,7 @@ function timelineObjectLibrary:_createTween( targetObject, valuesToTween, tweenS
 	tweenObject._parent = self
 
 	-- Calculate the new duration for the timeline
-	self:_calculateAndSetTotalDuration( tweenObject:getTotalDuration() )
+	self:_calculateAndSetTotalDuration( tweenObject:_getTotalDuration() )
 
 	-- Return the tween object
 	return tweenObject
@@ -359,6 +378,11 @@ function timelineObjectLibrary:_removeTween( tweenObject )
 	end
 
 	-- Calculate the new duration for the timeline
+	-- We could speed this up by checking if the tween just removed has the same duration
+	-- as the timeline - if not we don't bother recalculating
+	-- Another optimisation might be to remove tweens in batches, as worst case scenario is
+	-- a timeline with lots of equal duration tweens, then canceling the timeline
+	-- which would involve a lot of recursion
 	self:_calculateAndSetTotalDuration()
 
 end
@@ -417,11 +441,11 @@ function timelineObjectLibrary._new( params )
 	end
 
 	-- Create any specified tween objects and move them into the timeline
-	if params and params.tweens then
+	if params.tweens then
 		for i = 1, #params.tweens do
 			local tweenToInsert = params.tweens[ i ]
 
-			if type( tweenToInsert ) ~= "table" then
+			if "table" ~= type( tweenToInsert ) then
 				print( WARNING_STRING .. "Tried to insert nil into this timeline" )
 			else
 				local tweenData = tweenToInsert.tween
@@ -437,9 +461,9 @@ function timelineObjectLibrary._new( params )
 					local targetObject, valuesToTween, tweenSettings = tweenData[ 1 ], tweenData[ 2 ], tweenData[ 3 ]
 					
 					-- Checks for valid parameters
-					if not targetObject or type( targetObject ) ~= "table" then error( ERROR_STRING .. " you must pass a table or display object for tweens in a new timeline" ) end
-					if not valuesToTween or type( valuesToTween ) ~= "table" then error( ERROR_STRING .. " you must pass a properties table for tweens in a new timeline" ) end
-					if not tweenSettings or type( tweenSettings ) ~= "table" then error( ERROR_STRING .. " you must pass a params table for tweens in a new timeline" ) end
+					if not targetObject or ( "table" ~= type( targetObject ) and "userdata" ~= type( targetObject ) ) then error( ERROR_STRING .. " you must pass a table, display object, .path or .fill.effect for tweens in a new timeline" ) end
+					if not valuesToTween or "table" ~= type( valuesToTween ) then error( ERROR_STRING .. " you must pass a properties table for tweens in a new timeline" ) end
+					if not tweenSettings or "table" ~= type( tweenSettings ) then error( ERROR_STRING .. " you must pass a params table for tweens in a new timeline" ) end
 
 					-- The delay is now a combination of start time and delay
 					-- We do this to over-write the internal delay parameter
@@ -450,13 +474,99 @@ function timelineObjectLibrary._new( params )
 				end
 			end
 		end
+
+		-- Now we have all the tweens created, let's sort them in order of start time
+		local children = timelineObject._children
+		table.sort( children, private.sortTweensByStartTime )
+
+		-- We build up a list of all properties by target
+		-- This allows the timeline to know exactly what gets affected and when
+		-- This is needed to ensure that setPosition works properly regardless of target / property set ups
+		local allTweenedProperties = {}
+		timelineObject._allTweenedProperties = allTweenedProperties
+		for i = 1, #children do
+
+			-- Get needed values from child tween
+			local child = children[ i ]
+			local childTarget = child.target
+			local childStartTime = child._startTime
+
+			-- Get table of properties tweened of this target (or create one if needed)
+			local targetTweenedProperties = allTweenedProperties[ childTarget ]
+			if nil == targetTweenedProperties then
+				targetTweenedProperties = {}
+				allTweenedProperties[ childTarget ] = targetTweenedProperties
+			end
+
+			-- Find what properties of this target get tweened
+			-- _initialiseData is a table of the properties to change along with end values
+			-- constantRate tweens will have already set the end values
+			local childEndData = child._initialisationData or child._endValues
+			for property, _ in pairs( childEndData ) do
+
+				local targetPropertyTweens = targetTweenedProperties[ property ]
+				if nil == targetPropertyTweens then
+					targetPropertyTweens = {}
+					targetTweenedProperties[ property ] = targetPropertyTweens
+				end
+
+				-- Store the tween property by start and end time
+				targetPropertyTweens[ #targetPropertyTweens + 1 ] = { start = child._startTime, tween = child }
+			end
+		end
+
+		-- Build up predicted start values to allow jumping ahead
+		-- We need a table for each parameter per object, so we can work out what gets processed
+		-- and in what order
+		-- We make the (reasonable) assumption that any tween affecting a property of a given
+		-- target will finish before other tweens affecting the same property
+		local predictedStartValues = {}
+		for i = 1, #children do
+
+			-- Get needed values from child tween
+			local child = children[ i ]
+			local childTarget = child.target
+			local childStartTime = child._startTime
+
+			-- Get table of properties tweened of this target (or create one if needed)
+			local targetProperties = predictedStartValues[ childTarget ]
+			if nil == targetProperties then
+				targetProperties = {}
+				predictedStartValues[ childTarget ] = targetProperties
+			end
+
+			-- Find what properties of this target get tweened
+			-- _initialiseData is a table of the properties to change along with end values
+			-- constantRate tweens will have already set the end values
+			local childEndData = child._initialisationData
+			if childEndData then
+				for property, predictedEndValue in pairs( childEndData ) do
+
+					-- Where does the predicted start value come from?
+					if not targetProperties[ property ] then
+
+						-- This is the first tween using this value so store the current
+						-- target's value of this property
+						child._predictedStartValues[ property ] = childTarget[ property ]
+					else
+
+						-- Later tweens use the previous tween's predicted end value as
+						-- their start values
+						child._predictedStartValues[ property ] = targetProperties[ property ]
+					end
+
+					-- Now store it as the latest value to be found later on
+					targetProperties[ property ] = predictedEndValue
+				end
+			end
+		end	
 	end
 
 	-- Add in any markers
 	if params.markers then
 		for i = 1, #params.markers do
 			local marker = params.markers[ i ]
-			timelineObject:addMarker( marker.name, marker.time )
+			timelineObject:addMarker( marker.name, marker.time, marker.params )
 		end
 	end
 
@@ -501,13 +611,9 @@ end
 -----------------------------------------------------------------------------------------
 function timelineObjectLibrary:_destroy()
 
---[[
-	-- Remove all references
-	for k, v in pairs( self ) do self[ k ] = nil end
-
-	-- Remaining marker to ensure it gets handled as removed
-	self._removed = true
---]]
+	-- Clear some of the bigger tables manually
+	self._predictedStartValues = nil
+	self._allTweenedProperties = nil
 
 end
 
@@ -519,7 +625,7 @@ end
 function timelineObjectLibrary:_update( parentPosition, forceUpdate )
 
 	-- Should this timeline be ignored for any reason?
-	if ( self._removed or self._isPaused ) and true ~= forceUpdate then return false, true end
+	if self._removed or ( self._isPaused and true ~= forceUpdate ) then return false, true end
 
 	-- Get previous update's values
 	local oldPosition = self._position
@@ -560,7 +666,7 @@ function timelineObjectLibrary:_update( parentPosition, forceUpdate )
 			local tweenCompleted, forceRemove = tweenObject:_update( position * self._speedScale )
 
 			-- Mark tween for removal if it completed in the default timeline
-			if tweenCompleted and self._isDefaultTimeline then
+			if tweenCompleted and ( self._isDefaultTimeline or forceRemove ) then
 				tweenObjectsToRemove[ #tweenObjectsToRemove + 1 ] = i
 			end
 		end
@@ -615,62 +721,62 @@ end
 -----------------------------------------------------------------------------------------
 function timelineObjectLibrary:_processMarkers( position, oldPosition, duration )
 
-	-- For non-default timelines check for start and completion
-	-- The default timeline basically always runs
-	if not self._isDefaultTimeline then
+	-- The default timeline never has markers, nor has a started / ended state change
+	if self._isDefaultTimeline then return end
 
-		-- Trigger the start function if we've passed the start time
-		if not self._hasStarted and 0 <= position and not self._hasCompleted then
-			self._hasStarted = true
-			if self.onStart then self.onStart( self ) end
-		end
+	-- Trigger the start function if we've passed the start time
+	if not self._hasStarted and 0 <= position and not self._hasCompleted then
+		self._hasStarted = true
+		if self.onStart then self.onStart( self ) end
+	end
 
-		-- Have we completed this timeline?
-		if duration and position >= duration then
-			position = duration
+	-- Have we completed this timeline?
+	if duration and position >= duration then
+		position = duration
 
-			-- Mark as completed
-			self._hasCompleted = true
-		end
+		-- Mark as completed
+		self._hasCompleted = true
+	end
 
-		-- Process markers for callbacks
-		-- Note that if _includeOldPositionInChecks == true, we check from start
-		-- position (inclusive) to end position (inclusive)
-		-- Otherwise we check from > start position to end position (inclusive)
-		-- NOTE This could be sped up by storing what the last marker checked was
-		-- (and we reset it whenever there's a position change)
-		local markers = self._markersInOrder
-		if #markers > 0 then
-			local speedScale = self._speedScale
-			local includeOldPositionInChecks = self._includeOldPositionInChecks
-			for i = 1, #markers do
-				local marker = markers[ i ]
+	-- If there is no callback set for markers, we can just ignore
+	if not self.onMarkerPass then return end
 
-				-- Is this marker after (or at the same time as, depending on _includeOldPositionInChecks) the start position?
-				local includeMarker
-				if true == includeOldPositionInChecks then includeMarker = ( oldPosition <= ( marker.time / speedScale ) )
-				else includeMarker = ( oldPosition < ( marker.time / speedScale ) ) end
+	-- Process markers for callbacks
+	-- Note that if _includeOldPositionInChecks == true, we check from start
+	-- position (inclusive) to end position (inclusive)
+	-- Otherwise we check from > start position to end position (inclusive)
+	-- NOTE This could be sped up by storing what the last marker checked was
+	-- (and we reset it whenever there's a position change)
+	local markers = self._markersInOrder
+	if #markers > 0 then
+		local speedScale = self._speedScale
+		local includeOldPositionInChecks = self._includeOldPositionInChecks
+		for i = 1, #markers do
+			local marker = markers[ i ]
 
-				-- Have we found the first marker after our current start position?
-				if includeMarker then
+			-- Is this marker time > the old position (normal behaviour)
+			-- Or >= the old position, if _includeOldPositionInChecks == true
+			local includeMarker
+			if true == includeOldPositionInChecks then includeMarker = ( oldPosition <= ( marker.time / speedScale ) )
+			else includeMarker = ( oldPosition < ( marker.time / speedScale ) ) end
 
-					-- Now find all the markers (including the first one found) that are before or equal to the end position
-					for j = i, #markers do
-						local marker = markers[ j ]
-						if ( marker.time / speedScale ) <= position then
+			-- Have we found the first marker after our current start position?
+			if includeMarker then
 
-							-- If the timeline has an onMarkerPass callback, call it
-							if self.onMarkerPass then self.onMarkerPass{ name = marker.name, time = marker.time, timeline = self } end
-						else
+				-- Now find all the markers (including the first one found) that are before or equal to the end position
+				for j = i, #markers do
+					local marker = markers[ j ]
+					if ( marker.time / speedScale ) <= position then
+						self.onMarkerPass{ name = marker.name, time = marker.time, params = marker.params, timeline = self }
+					else
 
-							-- Outside, so we stop
-							break
-						end
+						-- Outside, so we stop
+						break
 					end
-
-					-- No more checking needed, we already found the range (whether empty or not)
-					break
 				end
+
+				-- No more checking needed, we already found the range (whether empty or not)
+				break
 			end
 		end
 	end
@@ -698,22 +804,27 @@ function timelineObjectLibrary:_setPosition( whatToSetPosition, parentPosition )
 
 	-- Check a valid parameter was passed
 	if not parentPosition or ( "number" ~= type( parentPosition ) and "string" ~= type( parentPosition ) ) then
-		error( DEBUG_STRING .. " you must pass a number or marker name to a timelineObject:setPosition() call." )
+		error( DEBUG_STRING .. " you must pass a positive number or marker name to a timeline:setPosition() call." )
 	end
 
 	-- Is this a marker? If so convert to a time position
 	-- If no marker exists, stop trying to set the position
 	if "string" == type( parentPosition ) then
 		marker = self._markers[ parentPosition ]
-		if not parentPosition then return
-		else parentPosition = marker.time end
+		if not marker then
+			print( WARNING_STRING .. " Marker name '" .. parentPosition .. "'' not found in timeline:setPosition() call." )
+			return
+		else
+			parentPosition = marker.time / self._speedScale
+		end
 	end
 
 	-- Special case for default timeline, it doesn't set its own position, it sets its children directly
+	local children = self._children
 	if self._isDefaultTimeline then
-		for i = 1, #self._children do
-			if whatToSetPosition then self._children[ i ]:_setPosition( whatToSetPosition, parentPosition )
-			else self._children[ i ]:_setPosition( parentPosition ) end
+		for i = 1, #children do
+			if whatToSetPosition then children[ i ]:_setPosition( whatToSetPosition, parentPosition )
+			else children[ i ]:_setPosition( parentPosition ) end
 		end
 
 		-- Stop processing
@@ -724,7 +835,7 @@ function timelineObjectLibrary:_setPosition( whatToSetPosition, parentPosition )
 	if whatToSetPosition and whatToSetPosition ~= self.tag then return end
 
 	-- What is the change in position?
-	local positionChange = ( self._position - parentPosition ) -- / self._speedScale
+	local positionChange = ( self._position - parentPosition )
 
 	-- Set the offset based upon this
 	self._offsetTime = self._offsetTime + positionChange
@@ -749,24 +860,55 @@ function timelineObjectLibrary:_setPosition( whatToSetPosition, parentPosition )
 	-- In this case we want == start time to == end time
 	self._includeOldPositionInChecks = true
 
+	-- Are we past the start?
+	if 0 < position then self._hasStarted = true
+	else self._hasStarted = nil end
+
+	-- Are we past the end?
+	local duration = self:getDuration()
+	if duration and position > duration then self._hasCompleted = true
+	else self._hasCompleted = nil end
+
+	-- Just sort all tweens by closeness to position
+	local scaledPosition = position * self._speedScale
+	local tweensByDistance = {}
+	for i = 1, #children do
+		local tween = children[ i ]
+
+		-- Have we moved into / passed the tween and the tween's data still isn't set up?
+		-- If so, use the predicted values
+		if scaledPosition >= tween._startTime and tween._initialisationData then
+			tween._usePredictedStartValues = true
+		end
+
+		-- Is the position at or after the start of this tween?
+		local startTime = tween._startTime
+
+		-- Are we before the tween? If so store by how much
+		if scaledPosition < startTime then
+			offset = startTime - scaledPosition
+
+		-- Are we after the tween? If so, store by how much
+		else
+			local duration = tween:getDuration()
+			if not duration or scaledPosition <= startTime + duration then offset = 0
+			else offset = scaledPosition - ( startTime + duration ) end
+		end
+
+		-- Store by offset
+		tweensByDistance[ i ] = { offset = offset, tween = tween }
+	end
+
+	-- Now we need to sort the items into distance from position order
+	table.sort( tweensByDistance, private.sortTablesByOffset )
+
+	-- All tweens processed in reverse order - the further away, the earlier they are updated
+	for i = #tweensByDistance, 1, -1 do
+		tweensByDistance[ i ].tween:_setPosition( scaledPosition )
+	end
+
 	-- Handle callback for changes
 	if self.onPositionChange then self.onPositionChange( self ) end
-
-	-- If this timeline was complete but now it would be played again, remove the completed flag
-	-- Note the extra check in case there's no duration (infinite repeats)
-	-- In theory you shouldn't be able to complete a timeline of infinite duration, but...
-	local duration = self:getDuration()
-	if self._hasCompleted and ( not duration or position <= self:getDuration() ) then
-		self._hasCompleted = nil
-	end
-
-	-- If this tween had started but now it would be set to before it started, remove the started flag
-	if self._hasStarted and 0 >= position then self._hasStarted = nil end
-
-	-- Cascade down any change events if required
-	for i = 1, #self._children do
-		self._children[ i ]:_setPosition( position * self._speedScale )
-	end
 
 end
 
@@ -828,7 +970,7 @@ function timelineObjectLibrary:_setSpeedScale( whatToSetSpeed, speedScale )
 
 	-- Alert the parent that it needs to recalculate
 	if self._parent and not self._parent._isDefaultTimeline then
-		self._parent:_calculateAndSetTotalDuration( self:getTotalDuration() )
+		self._parent:_calculateAndSetTotalDuration( self:_getTotalDuration() )
 	end
 
 end
@@ -929,8 +1071,9 @@ end
 -- cancels the timeline and everything in it (or rather marks it all for cancelling)
 -- This works differently to pause / resume etc, as it *can* recurse and locate specific
 -- items in children
--- The logic behind this is if you call cancel with a display object etc. you really
--- would expect it to be removed (particularly if you are then going to removeSelf() it)
+-- The logic behind this is if you call "cancel" with a display object etc. you really
+-- would expect it to be removed everywhere, particularly if you are then going to
+-- removeSelf() it
 -----------------------------------------------------------------------------------------
 function timelineObjectLibrary:_cancel( whatToCancel )
 
@@ -943,13 +1086,17 @@ function timelineObjectLibrary:_cancel( whatToCancel )
 
 		-- If this timeline has a tag, does it match the passed string?
 		if "string" == type( whatToCancel ) then cancelThis = ( whatToCancel == self.tag )
-
-		-- Is this the right target?
-		elseif "table" == type( whatToCancel ) then cancelThis = ( whatToCancel == self.target ) end	
+		else cancelThis = false end
 	end
 
 	-- Cancel this object if needed
-	if true == cancelThis then self._removed = true end
+	if true == cancelThis then
+		self._removed = true
+
+		-- Since we are removing this timeline we want to make sure all child tweens are
+		-- also removed, so we clear whatToCancel (so everything will match when we recurse)
+		whatToCancel = nil
+	end
 
 	-- Recurse through the children (they remove themselves from self's _children table as needed)
 	for i = #self._children, 1, -1 do
@@ -971,19 +1118,35 @@ function timelineObjectLibrary:_cancel( whatToCancel )
 
 end
 
+-----------------------------------------------------------------------------------------
+-- _getTotalDuration()
+-- Returns the duration of all parts of the timeline object active or otherwise, in
+-- milliseconds
+-- If a child has infinite repetitions, it returns nil
+-----------------------------------------------------------------------------------------
+function timelineObjectLibrary:_getTotalDuration()
+
+	-- Ignore if already completed
+	if self._removed then return end
+
+	if self._duration then return self:getDuration() + ( self._startTime or 0 )
+	else return end
+
+end
+
 --=====================================================================================--
 -- Public functions ===================================================================--
 --=====================================================================================--
 
 -----------------------------------------------------------------------------------------
--- addMarker( markerName, time )
+-- addMarker( markerName, time, params )
 -- Creates a marker in the timeline at the specified time
 -- Markernames must be unique (returns 'false' if one already exists with this name)
 -- If a natural movement of the playback head crosses more than one marker with callbacks,
 -- all callbacks are called in the correct order
 -- If several markers share the same time, their order of callback is unspecified
 -----------------------------------------------------------------------------------------
-function timelineObjectLibrary:addMarker( markerName, time )
+function timelineObjectLibrary:addMarker( markerName, time, params )
 
 	-- Ignore if already completed
 	if self._removed then return end
@@ -994,7 +1157,7 @@ function timelineObjectLibrary:addMarker( markerName, time )
 	end
 
 	-- Check a valid parameter was passed
-	if not time or "number" ~= type( time ) or 0 >= time then
+	if not time or "number" ~= type( time ) or time < 0 then
 		error( ERROR_STRING .. " you must pass a positive number as the time parameter to a timeline:addMarker() call." )
 	end
 
@@ -1005,6 +1168,7 @@ function timelineObjectLibrary:addMarker( markerName, time )
 	local marker = {
 		name = markerName,
 		time = time,
+		params = params,
 	}
 
 	-- Store marker by name
@@ -1089,22 +1253,6 @@ function timelineObjectLibrary:getDuration()
 end
 
 -----------------------------------------------------------------------------------------
--- getTotalDuration()
--- Returns the duration of all parts of the timeline object active or otherwise, in
--- milliseconds
--- If a child has infinite repetitions, it returns nil
------------------------------------------------------------------------------------------
-function timelineObjectLibrary:getTotalDuration()
-
-	-- Ignore if already completed
-	if self._removed then return end
-
-	if self._duration then return self:getDuration() + ( self._startTime or 0 )
-	else return end
-
-end
-
------------------------------------------------------------------------------------------
 -- setPosition( position )
 -- Moves the playback head to the given position
 -- Position can be a time in milliseconds
@@ -1112,6 +1260,11 @@ end
 -- This can only be called directly - it prevents problems with parameters
 -----------------------------------------------------------------------------------------
 function timelineObjectLibrary:setPosition( position )
+
+	-- Check a valid parameter was passed
+	if "number" == type( position ) and position < 0 then
+		error( DEBUG_STRING .. " you cannot pass a negative position to a timeline:setPosition() call." )
+	end
 
 	-- Relay the message to the internal function
 	return self:_setPosition( position )
@@ -1175,7 +1328,7 @@ end
 -----------------------------------------------------------------------------------------
 function timelineObjectLibrary:pause()
 
-	-- Relay the message to the internal function
+	-- Relay the message to the internal function guaranteed without parameters
 	return self:_pause()
 
 end
@@ -1187,7 +1340,7 @@ end
 -----------------------------------------------------------------------------------------
 function timelineObjectLibrary:resume()
 
-	-- Relay the message to the internal function
+	-- Relay the message to the internal function guaranteed without parameters
 	return self:_resume()
 
 end
@@ -1199,7 +1352,7 @@ end
 -----------------------------------------------------------------------------------------
 function timelineObjectLibrary:cancel()
 
-	-- Relay the message to the internal function
+	-- Relay the message to the internal function guaranteed without parameters
 	return self:_cancel()
 
 end

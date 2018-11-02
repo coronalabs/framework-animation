@@ -1,24 +1,18 @@
--------------------------------------------------------------------------------
--- 
--- Corona Labs
---
--- animation.lua
---
--- Code is MIT licensed; see https://www.coronalabs.com/links/code/license
---
--------------------------------------------------------------------------------
 
 --=====================================================================================--
-
-local timelineObjectLibrary = require( "__animation.timelineobject" )
-local tweenObjectLibrary = require( "__animation.tweenobject" )
 
 --=====================================================================================--
 -- Library objects ====================================================================--
 --=====================================================================================--
 
-local animationLibrary = {}
+local Library = require "CoronaLibrary"
+
+-- Create library
+local animationLibrary = Library:new{ name='animation', publisherId='com.coronalabs' }
 local private = {}
+
+local timelineObjectLibrary = require( "plugin.animation.timeline" )
+local tweenObjectLibrary = require( "plugin.animation.tween" )
 
 --=====================================================================================--
 -- Constants ==========================================================================--
@@ -34,7 +28,7 @@ local ERROR_STRING = "ERROR: " .. DEBUG_STRING
 
 private.timelines = {}
 private.hasRuntimeListener = false
-private.defaultTimelineTag = "default"
+private.defaultTimelineTag = "_default"
 
 --=====================================================================================--
 -- Private functions ==================================================================--
@@ -206,14 +200,14 @@ function animationLibrary.pause( whatToPause )
 			private.timelines[ i ]:_pause( whatToPause )
 		end
 
-	-- Could be a tween, timeline or display object (.tween is v1/v2 compatibility)
-	elseif "table" == type( whatToPause ) then
+	-- Could be a tween, timeline, display object or userdata reference
+	elseif "table" == type( whatToPause ) or "userdata" == type( whatToPause ) then
 
 		-- Is a timeline or tween object
 		if whatToPause._isTween or whatToPause._isTimeline then
 			whatToPause:_pause()
 
-		-- A display object (requires recursive searching)
+		-- A display object or userdata (requires recursive searching)
 		-- This only works on the default timeline
 		else
 			private.defaultTimeline:_pause( whatToPause )
@@ -247,14 +241,14 @@ function animationLibrary.resume( whatToResume )
 			private.timelines[ i ]:_resume( whatToResume )
 		end
 
-	-- Could be a tween, timeline or display object (.tween is v1/v2 compatibility)
-	elseif "table" == type( whatToResume ) then
+	-- Could be a tween, timeline, display object or userdata reference
+	elseif "table" == type( whatToResume ) or "userdata" == type( whatToResume ) then
 
 		-- Is a timeline or tween object
 		if whatToResume._isTween or whatToResume._isTimeline then
 			whatToResume:_resume()
 
-		-- A display object (requires recursive searching)
+		-- A display object or userdata (requires recursive searching)
 		-- This only works on the default timeline
 		else
 			private.defaultTimeline:_resume( whatToResume )
@@ -302,15 +296,15 @@ function animationLibrary.cancel( whatToCancel )
 			end
 		end
 
-	-- Could be a tween, timeline or display object (.tween is v1/v2 compatibility)
-	elseif "table" == type( whatToCancel ) then
+	-- Could be a tween, timeline, display object or userdata reference
+	elseif "table" == type( whatToCancel ) or "userdata" == type( whatToCancel ) then
 
 		-- Is a timeline or tween object
 		if whatToCancel._isTween or whatToCancel._isTimeline then
 			whatToCancel:_cancel()
 
-		-- A display object (requires recursive searching)
-		-- Is this the exception to the rule of not recursing into custom timelines?
+		-- A display object or userdata (requires recursive searching)
+		-- This the exception to the rule of not recursing into custom timelines
 		else
 
 			-- Go through each timeline / tween object (which will do recursive cancel as necessary)
@@ -361,14 +355,14 @@ function animationLibrary.setSpeedScale( whatToSetSpeed, speedScale )
 			private.timelines[ i ]:_setSpeedScale( whatToSetSpeed, speedScale )
 		end
 
-	-- Could be a tween, timeline or display object
-	elseif "table" == type( whatToSetSpeed ) then
+	-- Could be a tween, timeline, display object or userdata reference
+	elseif "table" == type( whatToSetSpeed ) or "userdata" == type( whatToSetSpeed ) then
 
 		-- Is a timeline or tween object
 		if whatToSetSpeed._isTween or whatToSetSpeed._isTimeline then
 			whatToSetSpeed:_setSpeedScale( speedScale )
 
-		-- A display object (requires recursive searching)
+		-- A display object or userdata (requires recursive searching)
 		-- This only works on the default timeline
 		else
 			private.defaultTimeline:_setSpeedScale( whatToSetSpeed, speedScale )
@@ -393,7 +387,12 @@ function animationLibrary.setPosition( whatToSetPosition, position )
 
 	-- Check a valid parameter was passed
 	if not position or ( "number" ~= type( position ) and "string" ~= type( position ) ) then
-		error( ERROR_STRING .. " you must pass a number or a marker name to a tween.setPosition() call." )
+		error( ERROR_STRING .. " you must pass a number or a marker name to an animation.setPosition() call." )
+	end
+
+	-- Check a valid parameter was passed
+	if "number" == type( position ) and position < 0 then
+		error( DEBUG_STRING .. " you cannot pass a negative position to an animation.setPosition() call." )
 	end
 
 	-- Set position of everything
@@ -414,14 +413,14 @@ function animationLibrary.setPosition( whatToSetPosition, position )
 			private.timelines[ i ]:_setPosition( whatToSetPosition, position )
 		end
 
-	-- Could be a tween, timeline or display object (.tween is v1/v2 compatibility)
-	elseif "table" == type( whatToSetPosition ) then
+	-- Could be a tween, timeline, display object or userdata reference
+	elseif "table" == type( whatToSetPosition ) or "userdata" == type( whatToSetPosition ) then
 
 		-- Is a timeline or tween object
 		if whatToSetPosition._isTween or whatToSetPosition._isTimeline then
 			whatToSetPosition:_setPosition( position )
 
-		-- A display object (requires recursive searching)
+		-- A display object or userdata (requires recursive searching)
 		-- This only works on the default timeline
 		else
 			private.defaultTimeline:_setPosition( whatToSetPosition, position )
@@ -474,7 +473,7 @@ end
 function animationLibrary.to( targetObject, valuesToTween, tweenSettings, invertParameters )
 
 	-- Checks for valid parameters
-	if not targetObject or type( targetObject ) ~= "table" then error( ERROR_STRING .. " you must pass a table or display object to an animation.to() call." ) end
+	if not targetObject or ( type( targetObject ) ~= "table" and type( targetObject ) ~= "userdata" ) then error( ERROR_STRING .. " you must pass a table, display object, .path or .fill.effect to an animation.to() call." ) end
 	if not valuesToTween or type( valuesToTween ) ~= "table" then error( ERROR_STRING .. " you must pass a properties table to an animation.to() call." ) end
 	if not tweenSettings or type( tweenSettings ) ~= "table" then error( ERROR_STRING .. " you must pass a params table to an animation.to() call." ) end
 
@@ -498,7 +497,7 @@ end
 function animationLibrary.from( targetObject, valuesToTween, tweenSettings )
 
 	-- Checks for valid parameters
-	if not targetObject or type( targetObject ) ~= "table" then error( ERROR_STRING .. " you must pass a table or display object to an animation.from() call." ) end
+	if not targetObject or ( type( targetObject ) ~= "table" and type( targetObject ) ~= "userdata" ) then error( ERROR_STRING .. " you must pass a table, display object, .path or .fill.effect to an animation.from() call." ) end
 	if not valuesToTween or type( valuesToTween ) ~= "table" then error( ERROR_STRING .. " you must pass a properties table to an animation.from() call." ) end
 	if not tweenSettings or type( tweenSettings ) ~= "table" then error( ERROR_STRING .. " you must pass a params table to an animation.from() call." ) end
 

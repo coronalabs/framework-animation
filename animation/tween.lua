@@ -1,16 +1,10 @@
--------------------------------------------------------------------------------
+-----------------------------------------------------------------------------------------
 -- 
 -- Corona Labs
 --
--- tweenobject.lua
+-- tween.lua
 --
 -- Code is MIT licensed; see https://www.coronalabs.com/links/code/license
---
--------------------------------------------------------------------------------
--- To do:
--- 		- error checking parameters	
---=====================================================================================--
-
 --=====================================================================================--
 -- Library objects ====================================================================--
 --=====================================================================================--
@@ -66,7 +60,7 @@ private.parametersData = {
 	onRepeat = "function",
 	onPositionChange = "function",
 
-	-- Simply must exist, can be any format
+	-- Simply can exist, can be any format
 	id = true,
 	tag = true,
 }
@@ -112,14 +106,14 @@ function private.validateParameters( valuesToTween, tweenSettings )
 				-- Is it the right type?
 				if type( v ) ~= parameterData then warningText = "parameter must be a " .. parameterData end
 
-			elseif type( parameterData ) == "table" then
+			elseif "table" == type( parameterData ) then
 
 				-- Is it the right type?
 				local validType = parameterData.type
 				local isValidType = false
 
 				-- Can be one of multiple types
-				if type( validType ) == "table" then
+				if "table" == type( validType ) then
 					for i = 1, #validType do
 						if type( v ) == validType[ i ] then
 							isValidType = true
@@ -134,18 +128,18 @@ function private.validateParameters( valuesToTween, tweenSettings )
 
 				-- Invalid
 				if isValidType ~= true then
-					if type( validType ) == "table" then warningText = "parameter must be one of the following: " .. table.concat( validType, ", " )
+					if "table" == type( validType ) then warningText = "parameter must be one of the following: " .. table.concat( validType, ", " )
 					else warningText = "parameter must be a " .. validType end
 
 				-- Was valid, now do we need to check for ranges?
 				else
 
 					-- Must be greater than the limit
-					if parameterData.range == ">" then
+					if ">" == parameterData.range then
 						if parameterData.limit >= v then warningText = "parameter must be greater than " .. tonumber( parameterData.limit ) end
 
 					-- Must be greater than or equal to the limit
-					elseif parameterData.range == ">=" then
+					elseif ">=" == parameterData.range then
 						if parameterData.limit > v then warningText = "parameter must be greater than or equal to " .. tonumber( parameterData.limit ) end
 					end
 				end
@@ -185,7 +179,7 @@ function private.copyStartParameters( propertiesToUse, sourceObject )
 	local copyTable = {}
 
 	-- Copy all of sourceObject's properties into the new table
-	for k, v in pairs( propertiesToUse ) do
+	for k, _ in pairs( propertiesToUse ) do
 		copyTable[ k ] = sourceObject[ k ]
 	end
 
@@ -194,7 +188,7 @@ function private.copyStartParameters( propertiesToUse, sourceObject )
 end
 
 -----------------------------------------------------------------------------------------
--- copyEndParameters( sourceTable, withDelta, targetObject )
+-- copyEndParameters( sourceTable, targetObject, withDelta )
 -- Creates a table of just the required end values by copying all the keys / values of
 -- sourceTable to a new table
 -- Copies all the keys / values of sourceTable to a new table it returns
@@ -239,10 +233,10 @@ function tweenObjectLibrary:_setPosition( whatToSetPosition, parentPosition )
 		parentPosition = whatToSetPosition
 		whatToSetPosition = nil
 	end
-
+	
 	-- Check a valid parameter was passed
 	if not parentPosition or "number" ~= type( parentPosition ) then
-		error( ERROR_STRING .. " you must pass a number to a setPosition() call" )
+		error( ERROR_STRING .. " you must pass a number to a tween:setPosition() call" )
 	end
 
 	-- If in the default timeline this needs matching before we should process it
@@ -268,21 +262,27 @@ function tweenObjectLibrary:_setPosition( whatToSetPosition, parentPosition )
 	end
 
 	-- Set the actual position (needed to ensure that when the callback is triggered, the position is in the right place)
+	local previousPosition = self._position
 	local position = parentPosition - self._startTime
-	self._position = position
 
-	-- Clear the previous iteration (as we don't care about where you came from)
+	-- Clear the previous values as we don't care about where you came from
+	-- and indeed need them to be blank so update() knows to treat this as a jump
+	self._position = nil
 	self.iteration = nil
 
-	-- If this tween was complete but now it would be played again, remove the completed flag
-	-- Note the extra check in case there's no duration (infinite repeats)
+	-- If we haven't yet initialised the data, then we need to use the predicted values
+	if 0 <= position and self._initialisationData then self._usePredictedStartValues = true end
+
+	-- Are we past the start?
+	if 0 < position then self._hasStarted = true
+	else self._hasStarted = nil end
+
+	-- Are we past the end?
 	local duration = self:getDuration()
-	if self._hasCompleted and 0 >= self.iterations or ( not duration or position <= self:getDuration() ) then self._hasCompleted = nil end
+	if duration and position > duration then self._hasCompleted = true
+	else self._hasCompleted = nil end
 
-	-- If this tween had started but now it would be set to before it started, remove the started flag
-	if self._hasStarted and position <= 0 then self._hasStarted = nil end
-
-	-- Force an update of this tween
+	-- Force an update of this tween if needed
 	if self._parent._isDefaultTimeline then
 
 		-- We use the parent's position here instead of the parentPosition property so that it factors in
@@ -448,7 +448,7 @@ end
 -----------------------------------------------------------------------------------------
 function tweenObjectLibrary._new( targetObject, valuesToTween, tweenSettings, invertParameters )
 
-	-- Swap parameters and object, if we want to invert them
+ 	-- Swap parameters and object, if we want to invert them
 	if true == invertParameters then
 
 		-- Swap start / end values, factoring in the delta property if needed
@@ -485,9 +485,12 @@ function tweenObjectLibrary._new( targetObject, valuesToTween, tweenSettings, in
 		_reflect = tweenSettings.reflect,
 
 		-- Storage for the start / end values
-		_initialisationData = valuesToTween, -- This is nil-ed once start and end values are stored 
+		_initialisationData = valuesToTween, -- This is nil-ed once actual start and end values are stored
 		_startValues = nil, -- Not actually calculated and stored until first needed
 		_endValues = nil, -- Not actually calculated and stored until first needed
+
+		_predictedStartValues = {}, -- This is nil-ed once actual start and end values are stored
+		_usePredictedStartValues = nil, -- This is set only when needed
 
 		-- Private working properties
 		_position = 0,
@@ -518,8 +521,10 @@ function tweenObjectLibrary._new( targetObject, valuesToTween, tweenSettings, in
 	tweenObject._position = -tweenObject._startTime
 
 	-- If this tween was set up with a constant rate, calculate it here
-	tweenObject:_calculateConstantRateDuration( valuesToTween, tweenSettings )
-
+	if tweenSettings.constantRateProperty then
+		tweenObject:_calculateConstantRateDuration( valuesToTween, tweenSettings )
+	end
+	
 	-- Return tween object
 	return tweenObject
 
@@ -543,25 +548,6 @@ function tweenObjectLibrary:_wasLastIterationReflected()
 end
 
 -----------------------------------------------------------------------------------------
--- _markAsInvalidTarget()
--- Called when the tween's target stops being a valid object (for example, the display
--- object was removeSelf()-ed)
--- For normal tweens, they essentially are silently destroyed
--- For tweens in timelines, they continue to exist but without any real processing
--- This is so they don't affect the timeline in unforeseen ways (eg affecting the
--- duration)
------------------------------------------------------------------------------------------
-function tweenObjectLibrary:_markAsInvalidTarget()
-
-	-- Mark as removed
-	self._removed = true
-
-	-- Return that this should be removed
-	return true
-
-end
-
------------------------------------------------------------------------------------------
 -- _destroy()
 -- Destroys the tween
 -- Called at the end of _update() when the _cancel property is set
@@ -571,13 +557,12 @@ function tweenObjectLibrary:_destroy()
 	-- Remove itself neatly from a parent timeline if it has one
 	if self._parent then self._parent:_removeTween( self ) end
 
---[[
-	-- Remove all references
-	for k, v in pairs( self ) do self[ k ] = nil end
+	-- Make sure target is freed
+	self.target = nil
 
 	-- Remaining marker to ensure it gets handled as removed
+	-- in case something is still referencing it
 	self._removed = true
---]]
 
 end
 
@@ -588,7 +573,8 @@ end
 function tweenObjectLibrary:_update( parentPosition, forceUpdate )
 
 	-- Should this tween be ignored for any reason?
-	if self._removed or self._hasCompleted or ( self._isPaused and true ~= forceUpdate ) then return false end
+	--if self._removed or ( ( self._isPaused or self._hasCompleted ) and true ~= forceUpdate ) then return false end
+	if self._removed or ( self._isPaused and true ~= forceUpdate ) then return false end
 
 	-- Get previous update's values
 	local oldPosition = self._position
@@ -600,8 +586,8 @@ function tweenObjectLibrary:_update( parentPosition, forceUpdate )
 	local position = parentPosition - self._offsetTime
 
 	-- Are we at or past the start position?
-	local withinTween = ( position >= 0 )
-	if withinTween then
+	local beyondTweenStart = ( position >= 0 )
+	if beyondTweenStart then
 
 		-- Trigger the start function if we've passed the start time
 		if not self._hasStarted then
@@ -612,6 +598,22 @@ function tweenObjectLibrary:_update( parentPosition, forceUpdate )
 		-- Have we grabbed the start values yet? If not grab them
 		if self._initialisationData then self:_initialiseTween() end
 	end
+
+	-- Are we past the end position?
+	local tweenDuration = self:getDuration()
+	local beyondTweenEnd = tweenDuration and position > tweenDuration 
+
+	-- Were we past the end position in the previous frame?
+	local oldBeyondTweenEnd = tweenDuration and oldPosition and oldPosition > tweenDuration
+
+	-- Store position so future updates can access it
+	self._position = position
+
+	-- Bail out if we aren't within the tween
+	-- Exceptions are we are forcing an update, or we are past the end of the tween
+	-- but in the previous update we were within it (IE to force the proper end state)
+	if not forceUpdate and
+		( false == beyondTweenStart or true == beyondTweenEnd and true == oldBeyondTweenEnd ) then return false end
 
 	-- If there are iterations calculate the new maximum duration and in which iteration you are in
 	-- If it is set to loop forever, we use duration * 2 in case it is set to reflect
@@ -629,6 +631,9 @@ function tweenObjectLibrary:_update( parentPosition, forceUpdate )
 	local iteration = mFloor( clippedPosition / duration ) + 1
 	if limitedIterations then iteration = mMin( iteration, iterations ) end
 
+	-- Store iteration so future updates can access it
+	self.iteration = iteration
+
 	-- Calculated position is 0-duration (factoring in reflect)
 	local calculatedPosition, reflected
 	if self._reflect then
@@ -642,110 +647,138 @@ function tweenObjectLibrary:_update( parentPosition, forceUpdate )
 		calculatedPosition = clippedPosition % duration
 	end
 
-	-- Store values for comparisions in future updates
-	self._position = position
-	self.iteration = iteration
+	-- If _initialisationData exists, it means we haven't yet set up the tween to process values
+	if self._initialisationData then return false end
 
-	-- Have the start and end values been grabbed?
-	if not self._initialisationData then
+	-- If no longer a valid target, end the update and force remove the tween
+	if self:_isInvalidTarget() then return true, true end
 
-		-- Calculate the ratio
-		local ratio = calculatedPosition / duration
+	-- Calculate the ratio
+	local ratio = calculatedPosition / duration
 
-		-- Get shortcut to the start and end values to tween between
-		local startValues = self._startValues -- Start values are simply to extract the relevant properties
-		local endValues = self._endValues
-		
-		-- Have we reached any important states?
-		local didChangeIteration = oldIteration and oldIteration < iteration and iteration > 1
-		local didReachEnd = 0 < iterations and maxDuration and clippedPosition == maxDuration
+	-- Get shortcut to the start and end values to tween between
+	local startValues = self._startValues -- Start values are simply to extract the relevant properties
+	local endValues = self._endValues
 
-		-- Interpolate (or set directly) the values
+	-- Have we reached any important states?
+	local didChangeIteration = oldIteration and oldIteration < iteration and iteration > 1
+	local didReachEnd = 0 < iterations and maxDuration and clippedPosition == maxDuration
 
-		-- Are we at the end of the tween as a whole or an iteration?
-		if true == didReachEnd or true == didChangeIteration then
+	-- Interpolate (or set directly) the values
 
-			-- easing.continuousLoop or true == self._easingEndIsStart always uses start values
-			if self._easing == easing.continuousLoop or true == self._easingEndIsStart then
-				endValues = self._startValues
+	-- Are we at the end of the tween as a whole or an iteration?
+	if true == didReachEnd or true == didChangeIteration then
+
+		-- easing.continuousLoop or true == self._easingEndIsStart always uses start values
+		if self._easing == easing.continuousLoop or true == self._easingEndIsStart then
+			endValues = startValues
+		else
+
+			-- End of tween values are start values under certain circumstances
+			if true == didReachEnd then 
+
+				-- Are we reflecting? Requires reflect property set and every other iteration
+				if true == self._reflect and 0 == iterations % 2 then endValues = startValues end
+
+			-- End of an iteration values are start values under certain circumstances
 			else
 
-				-- End of tween values are start values under certain circumstances
-				local useEndValues = false
-				if true == didReachEnd then 
-
-					-- Are we reflecting? Requires reflect property set and every other iteration
-					if true == self._reflect and 0 == iterations % 2 then endValues = self._startValues end
-
-				-- End of an iteration values are start values under certain circumstances
-				else
-
-					-- Are we at the end of a reflected iteration?
-					if true == self._reflect and 1 == iteration % 2 then endValues = self._startValues end
-				end
+				-- Are we at the end of a reflected iteration?
+				if true == self._reflect and 1 == iteration % 2 then endValues = startValues end
 			end
-
-			-- Set the target object's properties to their correct end values
-			local targetObject = self.target
-			if type( targetObject ) == "table" and ( self._isDisplayObject == true and type( targetObject._class ) == "table" ) then
-				for k, _ in pairs( startValues ) do
-					targetObject[ k ] = endValues[ k ]
-				end
-
-			-- There's no target, so kill this tween immediately and silently
-			-- This happens under 2 circumstances - the targetObject no longer exists, or it stopped being a display object (lost its ._class property)
-			-- This is what prevents removing the display object and still getting callbacks from the tween - go transitions!
-			else return self:_invalidTarget() end
-
-			-- Process repeats here
-			if didChangeIteration then
-			
-				-- Repeat it for each iteration passed (so if you have a really short iteration it captures everything)
-				for i = oldIteration + 1, iteration do
-
-					-- Set the iteration property to be correct *just* for this callback
-					self.iteration = i
-
-					-- Call the onRepeat handler
-					if self.onRepeat then self.onRepeat( self ) end
-				end
-			end
-
-		-- We are in the tween, or forceUpdate was set
-		-- This ensures we only update if within the tween, unless something really needs the values
-		-- to be updated regardless (so far, only setPosition(), but I'm looking to remove this )
-		elseif withinTween or forceUpdate then
-
-			-- Interpolate between start and end values (end values either from a fixed table or a target object)
-			local targetObject = self.target
-			local easing = self._easing
-			if type( targetObject ) == "table" and ( self._isDisplayObject == true and type( targetObject._class ) == "table" ) then
-				for k, v in pairs( startValues ) do
-					targetObject[ k ] = easing( ratio, 1, v, ( endValues[ k ] or 0 ) - v )
-				end
-
-			-- There's no target, so kill this tween immediately and silently
-			-- This happens under 2 circumstances - the targetObject no longer exists, or it stopped being a display object (lost its ._class property)
-			-- This is what prevents removing the display object and still getting callbacks from the tween - go transitions!
-			else return self:_markAsInvalidTarget() end
 		end
 
-		-- Have we completed the tween?
-		if true == didReachEnd then
-
-			-- Mark as completed
-			self._hasCompleted = true
-
-			-- Alert with the onComplete callback if exists
-			if self.onComplete then self.onComplete( self ) end
-
-			-- Return that this tween was completed
-			return true
+		-- Set the target object's properties to their correct end values directly (no interpolation)
+		local targetObject = self.target
+		for k, _ in pairs( startValues ) do
+			targetObject[ k ] = endValues[ k ]
 		end
+
+		-- Process repeats here
+		if didChangeIteration then
+		
+			-- Repeat it for each iteration passed (so if you have a really short iteration it captures everything)
+			for i = oldIteration + 1, iteration do
+
+				-- Set the iteration property to be correct *just* for this callback
+				self.iteration = i
+
+				-- Call the onRepeat handler
+				if self.onRepeat then self.onRepeat( self ) end
+			end
+		end
+
+	-- We are in the tween, or forceUpdate was set
+	-- This ensures we only update if within the tween, unless something really needs the values
+	-- to be updated regardless
+	else
+
+		-- Interpolate between start and end values (end values either from a fixed table or a target object)
+		local targetObject = self.target
+		local easing = self._easing
+
+		-- Set the target object's properties to their correct values using interpolation
+		local targetObject = self.target
+		for k, v in pairs( startValues ) do
+			targetObject[ k ] = easing( ratio, 1, v, ( endValues[ k ] or 0 ) - v )
+		end
+	end
+
+	-- Have we completed the tween (for the first time, in case it was forceUpdated)?
+	if true == didReachEnd and not self._hasCompleted then
+
+		-- Mark as completed
+		self._hasCompleted = true
+
+		-- Alert with the onComplete callback if exists
+		if self.onComplete then self.onComplete( self ) end
+
+		-- Return that this tween was completed
+		return true
 	end
 
 	-- Tween has not completed yet
 	return false
+
+end
+
+-----------------------------------------------------------------------------------------
+-- _isInvalidTarget()
+-- Checks if target is still valid, or if it has been cleaned up unexpectedly.
+-- For example if a display object is :removeSelf()-ed without first cancelling any
+-- tweens it is in, or :removeSelf()-ing the display object whose effect / path is
+-- being tweened, again without canceling properly.
+-- For these purposes a display object stops being a display object when its _class
+-- property stops being a table (a display object is a table with extra features)
+-- Effects / paths etc. are userdata objects - these are treated as cleaned up when
+-- the first property being tweened returns nil
+-- Returns whether the target is invalid (true) or not (false)
+function tweenObjectLibrary:_isInvalidTarget()
+
+	-- Check that target is still valid
+
+	-- A table might be a pure table or a display object
+	-- If a pure table and passes this test, it is still valid
+	local targetObject = self.target
+	local targetType = type( targetObject )
+	local invalidTarget = false
+	if "table" == targetType then
+
+		-- Display object table is no longer a display object if it has lost it's _class table
+		if self._isDisplayObject then return "table" ~= type( targetObject._class )
+		else return false end
+
+	-- userdata comes from things like paths or effects
+	elseif "userdata" == targetType then
+
+		-- If any tweened property of userdata is nil, it is because the parent object has died a death
+		local key = next( self._startValues )
+		return targetObject[ key ] == nil
+
+	-- If it isn't any of the above, it is definitely not a valid object now!
+	else
+		return true
+	end
 
 end
 
@@ -763,11 +796,24 @@ end
 -- calculated once we have the start and end values
 -- The solution for now is that these tweens do immediately grab the values for
 -- calculation purposes
+--
+-- Tweens may have predicted start values when part of a timeline
+-- These are the end value of the closest previous tween that shares the same target and
+-- property
 -----------------------------------------------------------------------------------------
 function tweenObjectLibrary:_initialiseTween()
 
-	-- Get start and end values
+	-- Get start values
 	local startValues = private.copyStartParameters( self._initialisationData, self.target )
+
+	-- Overwrite with predicted values if needed
+	if self._usePredictedStartValues then
+		for k, v in pairs( self._predictedStartValues ) do
+			startValues[ k ] = v
+		end
+	end
+
+	-- End values are always constant
 	local endValues = private.copyEndParameters( self._initialisationData, self.target, self._delta )
 
 	-- Store the values
@@ -776,6 +822,8 @@ function tweenObjectLibrary:_initialiseTween()
 
 	-- Remove our initial storage value
 	self._initialisationData = nil
+	self._predictedStartValues = nil
+	self._usePredictedStartValues = nil
 
 end
 
@@ -788,7 +836,10 @@ function tweenObjectLibrary:_calculateConstantRateDuration( valuesToTween, tween
 
 	-- We can only continue if constantRateProperty is one of the allowed values
 	local constantRateProperty = tweenSettings.constantRateProperty
-	if not private.constantRateProperties[ constantRateProperty ] then return end
+	if not private.constantRateProperties[ constantRateProperty ] then
+		print( WARNING_STRING .. "'" .. tostring( constantRateProperty ) .. "' parameter invalid when using 'constantRate'" )
+		return
+	end
 
 	-- Grab values if needed
 	if self._initialisationData then self:_initialiseTween() end
@@ -858,6 +909,23 @@ function tweenObjectLibrary:_calculateConstantRateDuration( valuesToTween, tween
 
 end
 
+-----------------------------------------------------------------------------------------
+-- _getTotalDuration()
+-- Returns the duration of all parts of the tween object active or otherwise, in
+-- milliseconds. In other words, the duration plus the specified delay / time offset
+-- before-hand if set
+-- If there are infinite repetitions, it returns nil
+-----------------------------------------------------------------------------------------
+function tweenObjectLibrary:_getTotalDuration()
+
+	-- If this object has been removed already, do nothing
+	if self._removed then return end
+
+	if 0 < self.iterations then return self:getDuration() + self._startTime
+	else return end
+
+end
+
 --=====================================================================================--
 -- Public functions ===================================================================--
 --=====================================================================================--
@@ -878,23 +946,6 @@ function tweenObjectLibrary:getDuration()
 end
 
 -----------------------------------------------------------------------------------------
--- getTotalDuration()
--- Returns the duration of all parts of the tween object active or otherwise, in
--- milliseconds. In other words, the duration plus the specified delay / time offset
--- before-hand if set
--- If there are infinite repetitions, it returns nil
------------------------------------------------------------------------------------------
-function tweenObjectLibrary:getTotalDuration()
-
-	-- If this object has been removed already, do nothing
-	if self._removed then return end
-
-	if 0 < self.iterations then return self:getDuration() + self._startTime
-	else return end
-
-end
-
------------------------------------------------------------------------------------------
 -- setPosition( position )
 -- Moves the playback head to the given position
 -- Position is a time in milliseconds
@@ -908,7 +959,12 @@ function tweenObjectLibrary:setPosition( position )
 		print( WARNING_STRING .. " you cannot set the position directly of a tween in a timeline" )
 		return
 	end
-	
+
+	-- Check a valid parameter was passed
+	if "number" == type( position ) and position < 0 then
+		error( DEBUG_STRING .. " you cannot pass a negative position to a tween:setPosition() call." )
+	end
+
 	-- Call the actual setPosition function
 	return self:_setPosition( position )
 
