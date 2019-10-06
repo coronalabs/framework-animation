@@ -262,7 +262,6 @@ function tweenObjectLibrary:_setPosition( whatToSetPosition, parentPosition )
 	end
 
 	-- Set the actual position (needed to ensure that when the callback is triggered, the position is in the right place)
-	local previousPosition = self._position
 	local position = parentPosition - self._startTime
 
 	-- Clear the previous values as we don't care about where you came from
@@ -448,7 +447,7 @@ end
 -----------------------------------------------------------------------------------------
 function tweenObjectLibrary._new( targetObject, valuesToTween, tweenSettings, invertParameters )
 
- 	-- Swap parameters and object, if we want to invert them
+    -- Swap parameters and object, if we want to invert them
 	if true == invertParameters then
 
 		-- Swap start / end values, factoring in the delta property if needed
@@ -761,12 +760,14 @@ function tweenObjectLibrary:_isInvalidTarget()
 	-- If a pure table and passes this test, it is still valid
 	local targetObject = self.target
 	local targetType = type( targetObject )
-	local invalidTarget = false
 	if "table" == targetType then
 
 		-- Display object table is no longer a display object if it has lost it's _class table
-		if self._isDisplayObject then return "table" ~= type( targetObject._class )
-		else return false end
+		if self._isDisplayObject then
+			return "table" ~= type( targetObject._class )
+		else
+			return false
+		end
 
 	-- userdata comes from things like paths or effects
 	elseif "userdata" == targetType then
@@ -873,8 +874,8 @@ function tweenObjectLibrary:_calculateConstantRateDuration( valuesToTween, tween
 
 		-- For X and Y calculate the scale 'distance'
 		local dXScale, dYScale
-		if valuesToTween.xScale then dX = self._endValues.xScale - self._startValues.xScale end
-		if valuesToTween.yScale then dY = self._endValues.yScale - self._startValues.yScale end
+		if valuesToTween.xScale then dXScale = self._endValues.xScale - self._startValues.xScale end
+		if valuesToTween.yScale then dYScale = self._endValues.yScale - self._startValues.yScale end
 
 		-- Were valid values found for at least one of the scale axes?
 		if not dXScale and not dYScale then
