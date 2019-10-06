@@ -199,7 +199,7 @@ function private.validateSetOfParameters( params, parametersData, appendString )
 
 				-- Is there a dependency?
 				if parameterData.dependency then
-					if not tweenSettings[ parameterData.dependency ] then warningText = "parameter requires valid '" .. parameterData.dependency .. "'' parameter" end
+					if not params[ parameterData.dependency ] then warningText = "parameter requires valid '" .. parameterData.dependency .. "'' parameter" end
 				end
 			end
 		else
@@ -489,7 +489,6 @@ function timelineObjectLibrary._new( params )
 			-- Get needed values from child tween
 			local child = children[ i ]
 			local childTarget = child.target
-			local childStartTime = child._startTime
 
 			-- Get table of properties tweened of this target (or create one if needed)
 			local targetTweenedProperties = allTweenedProperties[ childTarget ]
@@ -526,7 +525,6 @@ function timelineObjectLibrary._new( params )
 			-- Get needed values from child tween
 			local child = children[ i ]
 			local childTarget = child.target
-			local childStartTime = child._startTime
 
 			-- Get table of properties tweened of this target (or create one if needed)
 			local targetProperties = predictedStartValues[ childTarget ]
@@ -656,7 +654,6 @@ function timelineObjectLibrary:_update( parentPosition, forceUpdate )
 			currentTweenObjects[ self._children[ i ] ] = true
 		end
 		local tweenObjectsToRemove = {}
-		local allTweensPaused = true
 
 		-- Loop through all tween objects
 		for i = 1, #activeTweenObjects do
@@ -686,7 +683,6 @@ function timelineObjectLibrary:_update( parentPosition, forceUpdate )
 			-- Did this object exist previously? If not, add it to the active list
 			if not currentTweenObjects[ tweenObject ] then
 				activeTweenObjects[ #activeTweenObjects + 1 ] = tweenObject
-				if not tweenObject._isPaused then allPaused = false end
 			end
 		end
 
@@ -711,7 +707,7 @@ function timelineObjectLibrary:_update( parentPosition, forceUpdate )
 	end
 
 	-- Return that this timeline was not removed, and if active or not
-	return false, allTweensPaused
+	return false, false
 
 end
 
@@ -810,7 +806,7 @@ function timelineObjectLibrary:_setPosition( whatToSetPosition, parentPosition )
 	-- Is this a marker? If so convert to a time position
 	-- If no marker exists, stop trying to set the position
 	if "string" == type( parentPosition ) then
-		marker = self._markers[ parentPosition ]
+		local marker = self._markers[ parentPosition ]
 		if not marker then
 			print( WARNING_STRING .. " Marker name '" .. parentPosition .. "'' not found in timeline:setPosition() call." )
 			return
@@ -883,7 +879,7 @@ function timelineObjectLibrary:_setPosition( whatToSetPosition, parentPosition )
 
 		-- Is the position at or after the start of this tween?
 		local startTime = tween._startTime
-
+		local offset
 		-- Are we before the tween? If so store by how much
 		if scaledPosition < startTime then
 			offset = startTime - scaledPosition
